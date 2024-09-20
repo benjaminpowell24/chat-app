@@ -31,24 +31,44 @@ app.get('/', (req, res) => {
   res.sendFile(join(__dirname, 'client/index.html'))
 })
 
-io.on('connection', (socket) => {
+io.on('connection', async (socket) => {
   console.log('A user connected')
   socket.on('disconnect', () => {
    console.log('A user disconnected')
   })
 
-  socket.on('chat message', async(message) => {
+  socket.on('chat message', async(message, clientOffset, callback) => {
    let result
    try{
-    result = await db.run('INSERT INTO messages (content) VALUES (?)', message)
+    result = await db.run('INSERT INTO messages (content, client_offset) VALUES (?, ?)', message, clientOffset)
    }catch(e){
     console.log('Error: ', e)
+    if(e.errno === 19){
+     callback()
+     return
+    }
     return
    }
 
    io.emit('chat message', message, result.lastID)
    console.log('Message: ', message)
+   callback()
   })
+
+  if(!socket.recovered){
+   try{
+    await db.each(`SELECT id, content FROM messages where id > ?`, (err, row) => {
+     if(err){
+      console.log('Error: ', err)
+      return
+     }
+     socket.emit('chat message', row.content, row.id)
+    })
+
+   }catch(e){
+    console.log('Error: ', e)
+   }
+  }
 })
 
 
